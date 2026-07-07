@@ -1,0 +1,34 @@
+# Fine-tuning configuration for wav2vec2-XLSR-53 on Kazakh.
+# Load with:  python scripts/train.py --config configs/xlsr_kazakh.yaml
+# (falls back to JSON if PyYAML is not installed — see TrainConfig.load)
+
+dataset: data/prepared
+output_dir: checkpoints/narkesken-xlsr
+base_model: facebook/wav2vec2-large-xlsr-53
+
+# Optimization — values are a sensible XLSR fine-tuning starting point for a
+# few-hundred-hours-or-less corpus; tune per dataset.
+epochs: 30
+batch_size: 8
+grad_accum: 2
+learning_rate: 0.0003
+warmup_ratio: 0.1
+weight_decay: 0.005
+lr_scheduler: linear
+max_grad_norm: 1.0
+
+# Regularization is critical in the low-resource regime.
+freeze_feature_encoder: true
+attention_dropout: 0.05
+hidden_dropout: 0.05
+feat_proj_dropout: 0.05
+mask_time_prob: 0.06
+layerdrop: 0.05
+ctc_zero_infinity: true
+use_spec_augment: true
+
+fp16: true
+eval_strategy: epoch
+save_strategy: epoch
+group_by_length: true
+seed: 42

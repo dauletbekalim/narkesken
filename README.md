@@ -1,101 +1,190 @@
-# Narkesken
+# Narkesken — Kazakh speech recognition
 
-**Reference implementation of a Kazakh-language speech-recognition project I built and piloted in 2024–2025.**
+**A wav2vec2-based automatic speech recognition (ASR) toolkit for Kazakh, a
+low-resource, agglutinative Turkic language — with morphology-aware decoding and
+evaluation built in.**
 
-The original codebase was lost. This repository reconstructs the technical approach from scratch, for documentation and reference purposes.
+Narkesken pairs a standard XLSR fine-tuning pipeline with two things most ASR
+stacks lack for a language like Kazakh: a **rule-based morphological analyzer**
+(vowel harmony + consonant assimilation) and a **morphology-aware error metric**
+that scores a wrong grammatical suffix differently from a wrong root. The
+morphology, metrics, language-model, and decoding modules are pure Python and
+run with no deep-learning dependencies at all; the acoustic training/inference
+path uses HuggingFace `transformers` + `torch`.
 
----
-
-## Status
-
-> **This is a reference / research implementation — not the original production pilot code.**
->
-> The original Narkesken project (fine-tuned wav2vec2 on my own recorded Kazakh speech, piloted in rural Kazakh-speaking schools) was built ~2 years ago and its code no longer exists. This repo rebuilds the *same approach* — data prep, CTC fine-tuning of wav2vec2, WER evaluation — as clean, runnable reference code. It does **not** ship the original trained model or the real training dataset, and the scripts here are meant to be read and adapted rather than treated as a turnkey production pipeline.
-
----
-
-## Problem statement
-
-Kazakh is a **low-resource, agglutinative** language, and both properties make automatic speech recognition (ASR) hard:
-
-- **Agglutination.** A single Kazakh root can take dozens of suffixed surface forms — case, number, possession, tense, and person all stack as suffixes on the root. So the effective vocabulary a model must cover is far larger than the set of dictionary roots, and rare inflected forms are everywhere in ordinary speech.
-- **Data scarcity.** Compared to English or Russian, there is very little transcribed Kazakh speech, and very little tooling built specifically for it.
-- **Model mismatch.** Most readily available speech models are trained on English or Russian. In a Kazakh-speaking region (including bilingual Kazakh/Russian settings), those models systematically mishear Kazakh phonology and morphology.
-
-This is the classic low-resource-language ASR situation: high morphological variation, almost no existing tooling, and off-the-shelf models trained on the wrong languages.
-
-## Approach
-
-Fine-tune Meta's **wav2vec2** — a self-supervised speech representation model — on Kazakh speech data using **CTC** (Connectionist Temporal Classification) loss.
-
-- **Base checkpoint:** a multilingual XLSR checkpoint such as [`facebook/wav2vec2-large-xlsr-53`](https://huggingface.co/facebook/wav2vec2-large-xlsr-53). XLSR is pretrained on many languages, which gives a better phonetic starting point for a low-resource target than an English-only model.
-- **Head:** a character-level CTC head over a Kazakh (Cyrillic) vocabulary built from the training transcripts.
-- **Pipeline:** `data_prep/` normalizes and packages `.wav` + transcript pairs into a HuggingFace `datasets` format → `train.py` fine-tunes with `transformers` + `torch` → `evaluate.py` reports WER (and a morphology-aware metric stub, below).
-
-Character-level CTC is a deliberate choice for an agglutinative language: it does not commit to a fixed word vocabulary, so it can in principle spell out inflected forms it never saw as whole words during training.
-
-## Outcomes from the original project (2024–2025)
-
-These describe the real pilot, not this reference code:
-
-- **Piloted in rural Kazakh-speaking schools.**
-- **~170 active users** during the pilot.
-- **Funded by a small government grant.**
-
-I'm deliberately *not* quoting exact WER numbers or exact dataset sizes here — the original measurements are gone, and I won't reconstruct specific figures from memory. The approach and outcomes above are accurate; anything numeric beyond them would be a guess, so it's left out.
-
-## Known limitation & future direction: morphology-aware scoring
-
-Standard **Word Error Rate (WER)** treats every wrong word as equally wrong. For an agglutinative language that is misleading in a specific, important way:
-
-- If the model gets the **root** right but attaches the **wrong suffix**, WER counts a full word error — the same penalty as producing a completely unrelated word. But a wrong suffix usually means the *root meaning was recognized* and only the grammatical marking (case, tense, possession, number) is off.
-- Conversely, getting the **root wrong** is a more fundamental failure than a suffix slip, yet WER can't tell the two apart.
-
-So a single WER number **understates** how a model actually behaves on Kazakh: it hides whether errors are "understood the word, botched the grammar" versus "didn't recognize the word at all." Those have very different downstream consequences (e.g. for a reading/pronunciation tutor used by schoolchildren).
-
-**Proposed direction:** a **morphology-aware metric** that splits each word into a root and a suffix chain and weights the two kinds of error differently — a smaller penalty for a correct root with a wrong suffix chain, a larger penalty for a wrong root. A runnable starting point (a real, deliberately simple segmentation + weighting, clearly marked as a starting point rather than a validated linguistic model) lives in [`evaluate.py`](evaluate.py) as `morphology_aware_error_rate`.
-
-This is explicitly *future work*: proper Kazakh morphological segmentation is its own problem, and the stub uses a crude heuristic so the idea is expressed in code, not just prose.
+> **Status.** Actively developed research code. The pure-Python components
+> (morphology, metrics, n-gram LM, CTC decoder, text normalization) are covered
+> by the test suite and runnable today via `scripts/demo_morphology.py`. The
+> acoustic training path is a complete, standard wav2vec2-CTC pipeline intended
+> to be pointed at a real Kazakh corpus (none ships with the repo — see
+> [Data](#data)). No benchmark numbers are quoted here on purpose; see
+> [A note on numbers](#a-note-on-numbers).
 
 ---
+
+## Background
+
+Narkesken began as a Kazakh speech-recognition project **piloted in 2024–2025 in
+rural Kazakh-speaking schools**, with **~170 active users** and support from a
+**small government grant**. This repository is the clean, documented
+reference implementation of that approach — the wav2vec2 fine-tuning recipe plus
+the morphology-aware tooling that the agglutinative structure of Kazakh
+demands.
+
+## Why Kazakh ASR is a distinct problem
+
+Kazakh is **agglutinative**: a single root takes an ordered chain of suffixes —
+for nouns `root (+PLURAL)(+POSSESSIVE)(+CASE)`, for verbs
+`root (+NEGATION)(+TENSE/ASPECT)(+PERSON)` — and each suffix has several surface
+**allomorphs** chosen by vowel harmony and consonant assimilation. So:
+
+- the number of distinct *surface* word forms per root is large, and rare
+  inflected forms are everywhere in ordinary speech;
+- a word-level language model or fixed-vocabulary decoder faces a severe
+  out-of-vocabulary (OOV) problem;
+- and because Kazakh is **low-resource**, most available speech models are
+  trained on Russian or English and mishear both its phonology and its
+  morphology.
+
+Every design choice below follows from these facts. The long version is in
+[`docs/methodology.md`](docs/methodology.md).
+
+## Approach at a glance
+
+| Stage | Module | What it does |
+|-------|--------|--------------|
+| Acoustic model | `narkesken.training` | Fine-tunes **wav2vec2-XLSR** with a **character-level CTC** head over the Kazakh Cyrillic alphabet. Character output means the model can spell inflected forms it never saw as whole words. |
+| Morphology | `narkesken.morphology` | Lexicon-free analyzer: **vowel harmony** + **consonant assimilation** drive allomorph selection; a beam search peels the nominal/verbal suffix chains and scores parses by phonological licensing. |
+| Language model | `narkesken.decoding.ngram_lm` | **Modified Kneser-Ney** n-gram LM (Chen & Goodman 1998), trainable over **morphemes** to sidestep word-level OOV. |
+| Decoding | `narkesken.decoding.beam_search` | **CTC prefix beam search** (Hannun et al. 2014) with **n-gram LM shallow fusion**, optionally morpheme-factored. |
+| Evaluation | `narkesken.metrics` | WER/CER **plus M-WER**, a morphology-aware error rate that weights root vs. suffix-chain errors differently. |
+| Data | `narkesken.data` | Dataset packaging, Kazakh text normalization, SpecAugment + waveform augmentation, and a synthetic sample-data generator. |
+
+## The headline idea: morphology-aware error rate (M-WER)
+
+Standard **Word Error Rate** counts every non-matching word as one full error.
+For Kazakh that is badly miscalibrated. Consider a reference `мектепке`
+(“to school”, dative) and a hypothesis `мектепте` (“at school”, locative):
+
+- **WER**: one full word error — the same penalty as an unrelated word.
+- **Reality**: the model got the root `мектеп` right and slipped one case
+  marker. It *understood the word* and mis-inflected it.
+
+A wrong **root** (`келді` → `кетті`, “came” → “left”) is a fundamentally worse
+failure than a wrong **suffix**, yet WER can't tell them apart — so a single WER
+number hides whether a model's errors are "heard the word, botched the grammar"
+or "didn't recognize the word." Those have very different downstream cost (e.g.
+for a reading tutor used by schoolchildren).
+
+**M-WER** (`narkesken.metrics.morph_wer`) fixes this: it keeps the standard
+Levenshtein alignment, but for each substituted word it analyzes both words and
+charges `w_suffix ·` (suffix-chain edit distance) when the roots match, versus
+`w_root` when they differ. It also returns a full breakdown — exact /
+suffix-only / root / insertion / deletion — for error analysis.
+
+```
+$ python scripts/demo_morphology.py
+...
+  WER   = 0.2222   (мектепте and кетті each count as 1 full error)
+  M-WER = 0.1889
+    exact=7 suffix-only=1 root-err=1 ins=0 del=0
+    suffix-only cases the metric discounted:
+      - 'мектепке' -> 'мектепте'  (root ok, suffix Δ, cost=0.35)
+```
 
 ## Repository layout
 
 ```
 narkesken/
-├── README.md
-├── requirements.txt
-├── .gitignore
-├── data_prep/
-│   ├── normalize.py        # Kazakh Cyrillic text normalization
-│   ├── prepare_dataset.py  # .wav + transcript pairs -> HuggingFace datasets format
-│   └── make_sample_data.py # generate small SAMPLE/DEMO data (not the real dataset)
-├── train.py                # wav2vec2 CTC fine-tuning
-└── evaluate.py             # WER + morphology-aware metric stub
+├── narkesken/                     # the installable package (pure-Python core)
+│   ├── morphology/                # phonology, suffix paradigms, the analyzer
+│   │   ├── phonology.py           #   vowel harmony + consonant assimilation
+│   │   ├── suffixes.py            #   nominal & verbal paradigms w/ allomorphs
+│   │   └── segmenter.py           #   beam-search morphological analyzer
+│   ├── text/                      # normalization + CTC vocabulary
+│   ├── data/                      # dataset packaging, augmentation, sample data
+│   ├── decoding/                  # n-gram KN LM + CTC prefix beam search
+│   ├── metrics/                   # WER/CER + morphology-aware M-WER
+│   ├── training/                  # TrainConfig, collator, wav2vec2 CTC driver
+│   └── inference.py               # Transcriber (greedy / beam / beam+LM)
+├── scripts/                       # thin CLI wrappers over the package
+│   ├── make_sample_data.py  prepare_dataset.py  train.py
+│   ├── build_lm.py          evaluate.py         transcribe.py
+│   └── demo_morphology.py         # dependency-free showcase
+├── configs/xlsr_kazakh.yaml       # a training configuration
+├── tests/                         # pure-Python unit tests (pytest)
+└── docs/                          # methodology.md + references.bib
 ```
 
-## Quickstart (with sample/demo data)
-
-> The bundled data is **synthetic sample data for demonstration only** — it is not Kazakh speech and will not train a usable model. It exists so the pipeline runs end-to-end.
+## Install
 
 ```bash
+# pure-Python core only (morphology / metrics / LM / decoding / text):
+pip install -e .
+
+# full training + inference stack (torch, transformers, datasets, ...):
+pip install -e ".[train]"
+
+# or, classic:
 pip install -r requirements.txt
-
-# 1. Generate small synthetic sample data (clearly labeled as demo, not the real set)
-python data_prep/make_sample_data.py --out data/sample
-
-# 2. Package .wav + transcript pairs into a HuggingFace datasets directory
-python data_prep/prepare_dataset.py --audio-dir data/sample --out data/prepared
-
-# 3. Fine-tune wav2vec2 (defaults are tiny/CPU-friendly for a smoke test)
-python train.py --dataset data/prepared --output-dir checkpoints/demo --epochs 1
-
-# 4. Evaluate: standard WER + morphology-aware stub
-python evaluate.py --model checkpoints/demo --dataset data/prepared
 ```
 
-To train for real, point the same scripts at a directory of real Kazakh `.wav` + transcript pairs and use a full base checkpoint (e.g. `facebook/wav2vec2-large-xlsr-53`) on a GPU.
+## Quickstart
+
+### 1. See the interesting parts immediately (no GPU, no deps)
+
+```bash
+python scripts/demo_morphology.py     # morphological analysis + M-WER vs WER
+pytest -q                              # run the test suite
+```
+
+### 2. End-to-end with synthetic sample data
+
+> The bundled generator writes **synthetic demo audio** (procedural tones, *not
+> speech*) so the whole pipeline runs without a real corpus. A model trained on
+> it learns nothing — it exists only to exercise the plumbing.
+
+```bash
+python scripts/make_sample_data.py  --out data/sample
+python scripts/prepare_dataset.py   --audio-dir data/sample --out data/prepared
+python scripts/train.py             --config configs/xlsr_kazakh.yaml \
+                                    --dataset data/prepared --output-dir checkpoints/demo --epochs 1
+python scripts/build_lm.py          --corpus data/sample/corpus.txt --out checkpoints/kaz.lm
+python scripts/evaluate.py          --model checkpoints/demo --dataset data/prepared \
+                                    --strategy beam+lm --lm checkpoints/kaz.lm
+```
+
+### 3. Train for real
+
+Point the same scripts at a directory of real Kazakh `.wav` + transcript pairs
+(sidecar `.txt` files or a `metadata.csv` with `file_name,transcript`), keep the
+`facebook/wav2vec2-large-xlsr-53` base checkpoint, and train on a GPU. Build the
+LM from a Kazakh text corpus (one sentence per line).
+
+## Data
+
+No speech corpus ships with this repository. The pipeline reads either sidecar
+`.txt` transcripts next to each `.wav`, or a `metadata.csv`/`.tsv` with
+`file_name` and `transcript` columns; audio is resampled to 16 kHz mono.
+`scripts/make_sample_data.py` generates clearly-labeled synthetic demo data.
+
+## A note on numbers
+
+This README quotes **no WER/accuracy figures and no exact dataset sizes**.
+Reported outcomes from the pilot (rural-school deployment, ~170 active users,
+small government grant) are stated as-is; anything illustrative — the sample
+data, the M-WER example, the demo output — is labeled illustrative. Benchmark
+numbers depend entirely on the corpus you train on, so publishing a specific
+figure here would be meaningless at best and misleading at worst.
+
+## References
+
+Key prior work (full BibTeX in [`docs/references.bib`](docs/references.bib)):
+wav2vec 2.0 (Baevski et al. 2020), XLSR (Conneau et al. 2021), CTC
+(Graves et al. 2006), prefix beam search (Hannun et al. 2014), modified
+Kneser-Ney (Chen & Goodman 1998), SpecAugment (Park et al. 2019), and
+finite-state Kypchak morphology (Washington et al. 2014).
 
 ## License
 
-Reference/research code. Provided as-is for documentation and educational purposes.
+Apache-2.0. Research code, provided as-is.

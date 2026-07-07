@@ -1,5 +1,7 @@
-# Core ASR fine-tuning stack for Narkesken (reference implementation).
-# Pin ranges are intentionally loose; tighten for a reproducible training run.
+# Core ASR fine-tuning + evaluation stack for Narkesken.
+# The pure-Python components (narkesken.morphology / .metrics / .decoding /
+# .text) need NONE of these — they run on the standard library alone. These are
+# required only for training/inference (the torch/transformers path) and audio.
 
 torch>=2.0
 transformers>=4.30
@@ -8,3 +10,10 @@ jiwer>=3.0
 evaluate>=0.4
 librosa>=0.10
 soundfile>=0.12
+numpy>=1.23
+
+# Optional: YAML training configs (JSON works without it).
+pyyaml>=6.0
+
+# Dev / tests (pure-Python, no GPU needed):
+#   pip install pytest
