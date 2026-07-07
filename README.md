@@ -24,11 +24,10 @@ path uses HuggingFace `transformers` + `torch`.
 
 ## background
 
-narkesken began as a Kazakh speech-recognition project **piloted in 2024–2025 in
-rural Kazakh-speaking schools**, with **~170 active users** and support from a
-**small government grant**. this repository is the clean, documented reference
-implementation of that approach — the wav2vec2 fine-tuning recipe plus the
-morphology-aware tooling that the agglutinative structure of Kazakh demands.
+narkesken is a Kazakh speech-recognition project **piloted in 2024–2025 in rural
+Kazakh-speaking schools**, with **~170 active users** and support from a **small
+government grant**. this repository holds its wav2vec2 fine-tuning recipe plus
+the morphology-aware tooling that the agglutinative structure of Kazakh demands.
 
 ## why kazakh ASR is a distinct problem
 
