@@ -1,0 +1,42 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# --- Project-specific: data & model artifacts (never commit) ---
+# Real training data and generated sample data
+data/
+# Model checkpoints and trained weights
+checkpoints/
+runs/
+wandb/
+*.ckpt
+*.pt
+*.bin
+*.safetensors
+
+# Audio (keep the repo free of large binaries)
+*.wav
+*.flac
+*.mp3
