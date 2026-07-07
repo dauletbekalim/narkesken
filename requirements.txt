@@ -1,0 +1,10 @@
+# Core ASR fine-tuning stack for Narkesken (reference implementation).
+# Pin ranges are intentionally loose; tighten for a reproducible training run.
+
+torch>=2.0
+transformers>=4.30
+datasets>=2.14
+jiwer>=3.0
+evaluate>=0.4
+librosa>=0.10
+soundfile>=0.12
