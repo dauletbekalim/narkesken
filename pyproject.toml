@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "narkesken"
+dynamic = ["version"]
+description = "Kazakh-language speech recognition: wav2vec2 fine-tuning with morphology-aware decoding and evaluation."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Alim Dauletbek" }]
+keywords = ["asr", "speech-recognition", "kazakh", "wav2vec2", "low-resource", "agglutinative", "morphology"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Intended Audience :: Science/Research",
+]
+
+# The pure-Python core has no hard runtime dependencies. The DL stack is an
+# optional extra so `pip install narkesken` stays light for people who only
+# want the morphology / metrics / LM / decoding modules.
+dependencies = []
+
+[project.optional-dependencies]
+train = [
+    "torch>=2.0",
+    "transformers>=4.30",
+    "datasets>=2.14",
+    "jiwer>=3.0",
+    "evaluate>=0.4",
+    "librosa>=0.10",
+    "soundfile>=0.12",
+    "numpy>=1.23",
+    "pyyaml>=6.0",
+]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools.dynamic]
+version = { attr = "narkesken.__version__.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["narkesken*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
